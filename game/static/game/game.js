@@ -1,4 +1,15 @@
-/* 67 Game — MediaPipe Hands hand-tracking counter */
+/* 67 Game — MediaPipe Hands index-fingertip counter
+ *
+ * Same tracking style as the Hand-Pong script: we read ONLY the index
+ * fingertip (landmark 8) for each detected hand. Hands are distinguished by
+ * which half of the frame their fingertip is in (left half = "L", right half
+ * = "R") rather than trusting MediaPipe's handedness label. Each fingertip is
+ * tracked independently and a "67" = one full down-and-back-up cycle across
+ * the horizontal center line (hysteresis prevents jitter).
+ *
+ * Only needs ONE fingertip visible to keep counting, so tracking doesn't cut
+ * out when the other hand leaves the frame.
+ */
 (() => {
   const cfg = window.GAME_CONFIG;
 
@@ -21,12 +32,15 @@
   let timerInterval = null;
   let submitted = false;
 
-  // Crossing detection:
-  //   We compute an average wrist Y for each hand (mirror-flipped to match display).
-  //   "state" is which hand is higher: "AB" (hand0 higher) or "BA" (hand1 higher).
-  //   Each confirmed flip (with hysteresis) = +1.
-  let crossState = null; // null | "AB" | "BA"
-  const HYSTERESIS = 0.06; // fraction of video height difference required to flip
+  // Per-hand crossing state, keyed by "L" or "R" (which half of the frame the
+  // index fingertip is currently in). Each hand tracks whether its fingertip
+  // is currently "above" or "below" the line, and what side the current cycle
+  // started on so a full round-trip = 1 count.
+  //   side:   "above" | "below" | null   (current stable position)
+  //   origin: "above" | "below" | null   (side the current cycle started on)
+  const handState = new Map();
+  const INDEX_TIP = 8; // MediaPipe landmark index for the index fingertip
+  const HYSTERESIS = 0.04; // fraction of frame height past midline needed to flip
 
   function setStatus(msg) { statusEl.textContent = msg; }
   function updateCount(n) { count = n; countEl.textContent = n; }
@@ -35,6 +49,17 @@
   function resizeCanvas() {
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
+  }
+
+  function getHandState(label) {
+    if (!handState.has(label)) {
+      handState.set(label, { side: null, origin: null });
+    }
+    return handState.get(label);
+  }
+
+  function resetHandStates() {
+    handState.clear();
   }
 
   function onResults(results) {
@@ -59,48 +84,77 @@
     ctx.setLineDash([]);
 
     const landmarksList = results.multiHandLandmarks || [];
-    const handedness = results.multiHandedness || [];
 
-    // Draw landmarks
+    // Pick only the index fingertip (landmark 8) from each detected hand and
+    // label it "L" or "R" by which half of the frame it's in.
+    const tips = [];
+    for (const lm of landmarksList) {
+      const tip = lm[INDEX_TIP];
+      const label = tip.x < 0.5 ? "L" : "R";
+      tips.push({ x: tip.x, y: tip.y, label });
+    }
+
+    // Draw a dim skeleton and a bold marker on the index fingertip only
     for (let i = 0; i < landmarksList.length; i++) {
       const lm = landmarksList[i];
       if (window.drawConnectors && window.HAND_CONNECTIONS) {
-        drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: "#8ab4ff", lineWidth: 3 });
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, {
+          color: "rgba(138, 180, 255, 0.35)",
+          lineWidth: 2,
+        });
       }
-      if (window.drawLandmarks) {
-        drawLandmarks(ctx, lm, { color: "#9ef59e", lineWidth: 1, radius: 3 });
-      }
+      const tip = lm[INDEX_TIP];
+      const px = tip.x * canvas.width;
+      const py = tip.y * canvas.height;
+      ctx.beginPath();
+      ctx.arc(px, py, 12, 0, Math.PI * 2);
+      ctx.fillStyle = "#9ef59e";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.stroke();
     }
     ctx.restore();
 
-    // Counting logic — needs exactly 2 hands
-    if (landmarksList.length === 2 && running) {
-      // Use average Y of a few landmarks for stability
-      const avgY = (lm) => {
-        const idx = [0, 5, 9, 13, 17]; // wrist + knuckles
-        let s = 0;
-        for (const i of idx) s += lm[i].y;
-        return s / idx.length;
-      };
-      // Sort hands by handedness label so hand ordering is stable
-      const tagged = landmarksList.map((lm, i) => ({
-        lm,
-        label: (handedness[i] && handedness[i].label) || `H${i}`,
-      }));
-      tagged.sort((a, b) => a.label.localeCompare(b.label));
-      const yA = avgY(tagged[0].lm);
-      const yB = avgY(tagged[1].lm);
-      const diff = yB - yA; // positive means A higher (smaller y)
-
-      let newState = crossState;
-      if (diff > HYSTERESIS) newState = "AB"; // A is clearly higher
-      else if (diff < -HYSTERESIS) newState = "BA";
-
-      if (newState && newState !== crossState) {
-        if (crossState !== null) {
-          updateCount(count + 1);
+    // Counting logic — per fingertip, independently
+    if (running && tips.length > 0) {
+      // If both tips ended up in the same half of the frame, keep them
+      // distinct by forcing one to the other side so we don't merge them.
+      if (tips.length === 2 && tips[0].label === tips[1].label) {
+        if (tips[0].x < tips[1].x) {
+          tips[0].label = "L"; tips[1].label = "R";
+        } else {
+          tips[0].label = "R"; tips[1].label = "L";
         }
-        crossState = newState;
+      }
+
+      const seen = new Set();
+      for (const t of tips) {
+        seen.add(t.label);
+        const offset = t.y - 0.5; // negative = above line, positive = below
+
+        const state = getHandState(t.label);
+        let newSide = state.side;
+        if (offset > HYSTERESIS) newSide = "below";
+        else if (offset < -HYSTERESIS) newSide = "above";
+
+        if (newSide && newSide !== state.side) {
+          if (state.origin === null) {
+            state.origin = newSide; // first confirmed side — start a cycle here
+          } else if (newSide === state.origin) {
+            updateCount(count + 1); // returned to origin => full "67"
+          }
+          state.side = newSide;
+        } else if (state.side === null && newSide) {
+          state.side = newSide;
+          state.origin = newSide;
+        }
+      }
+
+      // Drop state for any side that wasn't seen this frame so it re-enters
+      // cleanly rather than triggering a phantom crossing.
+      for (const label of Array.from(handState.keys())) {
+        if (!seen.has(label)) handState.delete(label);
       }
     }
 
@@ -153,11 +207,11 @@
   function startGame() {
     submitted = false;
     updateCount(0);
-    crossState = null;
+    resetHandStates();
     updateTimer(cfg.duration);
     running = true;
     startBtn.disabled = true;
-    setStatus("GO! Cross your hands over the line!");
+    setStatus("GO! Bounce your index fingertips across the line!");
     timerInterval = setInterval(() => {
       updateTimer(timeLeft - 1);
       if (timeLeft <= 0) endGame();
@@ -205,7 +259,7 @@
     clearInterval(timerInterval);
     updateCount(0);
     updateTimer(cfg.duration);
-    crossState = null;
+    resetHandStates();
     submitted = false;
     modal.classList.add("hidden");
     setStatus("Ready — press Start");
