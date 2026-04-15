@@ -1,0 +1,42 @@
+{% extends "game/base.html" %}
+{% block title %}Leaderboard · 67 Game{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>🏆 Leaderboard</h1>
+
+  <form method="get" class="filter-form">
+    <label>Filter by duration:
+      <select name="duration" onchange="this.form.submit()">
+        <option value="">All</option>
+        <option value="10" {% if selected_duration == "10" %}selected{% endif %}>10s</option>
+        <option value="15" {% if selected_duration == "15" %}selected{% endif %}>15s</option>
+        <option value="30" {% if selected_duration == "30" %}selected{% endif %}>30s</option>
+        <option value="60" {% if selected_duration == "60" %}selected{% endif %}>60s</option>
+      </select>
+    </label>
+  </form>
+
+  {% if scores %}
+    <table class="leaderboard">
+      <thead>
+        <tr><th>#</th><th>Name</th><th>67s</th><th>Duration</th><th>When</th></tr>
+      </thead>
+      <tbody>
+        {% for s in scores %}
+          <tr class="{% if s.name == name %}me{% endif %}">
+            <td>{{ forloop.counter }}</td>
+            <td>{{ s.name }}</td>
+            <td class="count">{{ s.count }}</td>
+            <td>{{ s.duration }}s</td>
+            <td>{{ s.created_at|date:"M j, g:i a" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No scores yet — be the first!</p>
+  {% endif %}
+
+  <p><a href="{% url 'home' %}">← Back</a></p>
+</section>
+{% endblock %}

@@ -1,14 +1,24 @@
-/* 67 Game — MediaPipe Hands index-fingertip counter
+/* 67 Game — palm-center tracking with peak/trough cycle detection
  *
- * Same tracking style as the Hand-Pong script: we read ONLY the index
- * fingertip (landmark 8) for each detected hand. Hands are distinguished by
- * which half of the frame their fingertip is in (left half = "L", right half
- * = "R") rather than trusting MediaPipe's handedness label. Each fingertip is
- * tracked independently and a "67" = one full down-and-back-up cycle across
- * the horizontal center line (hysteresis prevents jitter).
+ * Chosen for the use case: a palm-up hand facing the camera, moving FAST up
+ * and down.
  *
- * Only needs ONE fingertip visible to keep counting, so tracking doesn't cut
- * out when the other hand leaves the frame.
+ * Why this tracking approach:
+ *   - Fingertips (esp. landmark 8) are unstable under motion blur and when
+ *     fingers curl, so counting fingertip line-crossings flickers at high
+ *     speed. We instead use the PALM CENTER, computed as the mean of the
+ *     wrist (0) plus the four finger-MCP knuckles (5, 9, 13, 17). With a
+ *     palm-up / front-facing pose these five points are always visible and
+ *     form a stable anchor that barely moves when the fingers flex.
+ *   - A fixed "line crossing" counter misbehaves when the user's motion
+ *     amplitude drifts off-center (e.g. they start bouncing mostly above the
+ *     line). We instead do PEAK/TROUGH DETECTION on the smoothed palm Y:
+ *     every time vertical direction reverses with enough amplitude, that's
+ *     one extremum; a full up-down cycle = one "67".
+ *   - Each hand is tracked independently (keyed by which half of the frame
+ *     its palm is in), so the counter doesn't cut out when one hand briefly
+ *     leaves the frame, and fast alternating "Left up / Right up" bouncing
+ *     counts on both hands.
  */
 (() => {
   const cfg = window.GAME_CONFIG;
@@ -32,15 +42,34 @@
   let timerInterval = null;
   let submitted = false;
 
-  // Per-hand crossing state, keyed by "L" or "R" (which half of the frame the
-  // index fingertip is currently in). Each hand tracks whether its fingertip
-  // is currently "above" or "below" the line, and what side the current cycle
-  // started on so a full round-trip = 1 count.
-  //   side:   "above" | "below" | null   (current stable position)
-  //   origin: "above" | "below" | null   (side the current cycle started on)
+  // Tracking config
+  const PALM_POINTS = [0, 5, 9, 13, 17]; // wrist + 4 finger-MCP knuckles
+  const SMOOTH = 0.55;        // low-pass for palm Y (0 = no smoothing, ~0.8 = very smooth)
+  const MIN_AMPLITUDE = 0.05; // fraction of frame height that counts as a real reversal
+  const MIN_INTERVAL_MS = 80; // min time between counted peaks/troughs (debounce)
+
+  // Per-hand state. Keyed by "L" or "R" based on which half of the frame the
+  // palm center is in this frame.
+  //   smoothY:       low-pass filtered palm Y in [0..1]
+  //   candidateY:    running extreme Y since last confirmed extremum
+  //                  (tracks the farthest the palm has moved in the current
+  //                   direction — this is the "candidate peak/trough")
+  //   lastExtType:   "peak" (high point, small y) | "trough" (low point, big y) | null
+  //   lastExtAt:     timestamp of last counted extremum (ms) for debounce
   const handState = new Map();
-  const INDEX_TIP = 8; // MediaPipe landmark index for the index fingertip
-  const HYSTERESIS = 0.04; // fraction of frame height past midline needed to flip
+
+  function getHandState(label) {
+    if (!handState.has(label)) {
+      handState.set(label, {
+        smoothY: null,
+        candidateY: null,
+        lastExtType: null,
+        lastExtAt: 0,
+      });
+    }
+    return handState.get(label);
+  }
+  function resetHandStates() { handState.clear(); }
 
   function setStatus(msg) { statusEl.textContent = msg; }
   function updateCount(n) { count = n; countEl.textContent = n; }
@@ -51,15 +80,10 @@
     canvas.height = video.videoHeight || 480;
   }
 
-  function getHandState(label) {
-    if (!handState.has(label)) {
-      handState.set(label, { side: null, origin: null });
-    }
-    return handState.get(label);
-  }
-
-  function resetHandStates() {
-    handState.clear();
+  function palmCenter(lm) {
+    let sx = 0, sy = 0;
+    for (const i of PALM_POINTS) { sx += lm[i].x; sy += lm[i].y; }
+    return { x: sx / PALM_POINTS.length, y: sy / PALM_POINTS.length };
   }
 
   function onResults(results) {
@@ -72,93 +96,108 @@
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
 
-    // Draw horizontal center line
-    const midY = canvas.height / 2;
-    ctx.setLineDash([12, 10]);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, midY);
-    ctx.lineTo(canvas.width, midY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
     const landmarksList = results.multiHandLandmarks || [];
 
-    // Pick only the index fingertip (landmark 8) from each detected hand and
-    // label it "L" or "R" by which half of the frame it's in.
-    const tips = [];
+    // Compute palm centers and assign "L" or "R" by horizontal position
+    const palms = [];
     for (const lm of landmarksList) {
-      const tip = lm[INDEX_TIP];
-      const label = tip.x < 0.5 ? "L" : "R";
-      tips.push({ x: tip.x, y: tip.y, label });
+      const c = palmCenter(lm);
+      palms.push({ ...c, lm, label: c.x < 0.5 ? "L" : "R" });
+    }
+    // If both palms collapsed to the same half, split them by relative x
+    if (palms.length === 2 && palms[0].label === palms[1].label) {
+      if (palms[0].x < palms[1].x) { palms[0].label = "L"; palms[1].label = "R"; }
+      else                         { palms[0].label = "R"; palms[1].label = "L"; }
     }
 
-    // Draw a dim skeleton and a bold marker on the index fingertip only
-    for (let i = 0; i < landmarksList.length; i++) {
-      const lm = landmarksList[i];
+    // Draw dim skeleton for each hand + bold palm-center marker
+    for (const p of palms) {
       if (window.drawConnectors && window.HAND_CONNECTIONS) {
-        drawConnectors(ctx, lm, HAND_CONNECTIONS, {
+        drawConnectors(ctx, p.lm, HAND_CONNECTIONS, {
           color: "rgba(138, 180, 255, 0.35)",
           lineWidth: 2,
         });
       }
-      const tip = lm[INDEX_TIP];
-      const px = tip.x * canvas.width;
-      const py = tip.y * canvas.height;
+      const px = p.x * canvas.width;
+      const py = p.y * canvas.height;
       ctx.beginPath();
-      ctx.arc(px, py, 12, 0, Math.PI * 2);
+      ctx.arc(px, py, 14, 0, Math.PI * 2);
       ctx.fillStyle = "#9ef59e";
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = "rgba(0,0,0,0.7)";
       ctx.stroke();
+      // label
+      ctx.save();
+      ctx.scale(-1, 1); // un-mirror text
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = "bold 16px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.label, -px, py - 22);
+      ctx.restore();
     }
     ctx.restore();
 
-    // Counting logic — per fingertip, independently
-    if (running && tips.length > 0) {
-      // If both tips ended up in the same half of the frame, keep them
-      // distinct by forcing one to the other side so we don't merge them.
-      if (tips.length === 2 && tips[0].label === tips[1].label) {
-        if (tips[0].x < tips[1].x) {
-          tips[0].label = "L"; tips[1].label = "R";
-        } else {
-          tips[0].label = "R"; tips[1].label = "L";
-        }
-      }
-
+    // Counting — peak/trough detection on smoothed palm Y, per hand
+    if (running && palms.length > 0) {
+      const now = performance.now();
       const seen = new Set();
-      for (const t of tips) {
-        seen.add(t.label);
-        const offset = t.y - 0.5; // negative = above line, positive = below
+      for (const p of palms) {
+        seen.add(p.label);
+        const s = getHandState(p.label);
 
-        const state = getHandState(t.label);
-        let newSide = state.side;
-        if (offset > HYSTERESIS) newSide = "below";
-        else if (offset < -HYSTERESIS) newSide = "above";
+        // Low-pass filter Y
+        s.smoothY = s.smoothY == null ? p.y : (1 - SMOOTH) * p.y + SMOOTH * s.smoothY;
 
-        if (newSide && newSide !== state.side) {
-          if (state.origin === null) {
-            state.origin = newSide; // first confirmed side — start a cycle here
-          } else if (newSide === state.origin) {
-            updateCount(count + 1); // returned to origin => full "67"
+        if (s.candidateY == null) {
+          s.candidateY = s.smoothY;
+          continue;
+        }
+
+        // `nextExpected` is the kind of extremum we're currently hunting for.
+        //   - If the last confirmed extremum was a trough (or we haven't
+        //     confirmed one yet), we're looking for a peak (small Y).
+        //   - If the last confirmed extremum was a peak, we're looking for
+        //     a trough (big Y).
+        const huntingPeak = s.lastExtType !== "peak"; // default: hunt peak first
+
+        if (huntingPeak) {
+          // Track the smallest (highest) Y we've seen since last confirmation
+          if (s.smoothY < s.candidateY) s.candidateY = s.smoothY;
+          // Confirm the peak once the palm has moved back DOWN from the
+          // candidate by at least MIN_AMPLITUDE
+          if (s.smoothY - s.candidateY >= MIN_AMPLITUDE &&
+              (now - s.lastExtAt) >= MIN_INTERVAL_MS) {
+            if (s.lastExtType !== null) {
+              // peak after a previous extremum => completed half a cycle;
+              // count every extremum after the first so both up-bounces
+              // and down-bounces register => rewards speed.
+              updateCount(count + 1);
+            }
+            s.lastExtType = "peak";
+            s.candidateY = s.smoothY; // start hunting a trough from here
+            s.lastExtAt = now;
           }
-          state.side = newSide;
-        } else if (state.side === null && newSide) {
-          state.side = newSide;
-          state.origin = newSide;
+        } else {
+          // Hunting a trough — track the largest (lowest) Y
+          if (s.smoothY > s.candidateY) s.candidateY = s.smoothY;
+          if (s.candidateY - s.smoothY >= MIN_AMPLITUDE &&
+              (now - s.lastExtAt) >= MIN_INTERVAL_MS) {
+            updateCount(count + 1);
+            s.lastExtType = "trough";
+            s.candidateY = s.smoothY;
+            s.lastExtAt = now;
+          }
         }
       }
 
-      // Drop state for any side that wasn't seen this frame so it re-enters
-      // cleanly rather than triggering a phantom crossing.
+      // Drop stale hand state so re-entering doesn't trigger ghosts
       for (const label of Array.from(handState.keys())) {
         if (!seen.has(label)) handState.delete(label);
       }
     }
 
-    // Draw big count overlay
+    // Big count overlay
     if (running) {
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -171,7 +210,7 @@
     }
   }
 
-  // Initialize MediaPipe Hands
+  // Initialize MediaPipe Hands (low complexity + lenient thresholds for speed)
   const hands = new Hands({
     locateFile: (file) =>
       `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
@@ -179,8 +218,8 @@
   hands.setOptions({
     maxNumHands: 2,
     modelComplexity: 0,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.5,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.4, // a touch lenient to survive motion blur
   });
   hands.onResults(onResults);
 
@@ -211,7 +250,7 @@
     updateTimer(cfg.duration);
     running = true;
     startBtn.disabled = true;
-    setStatus("GO! Bounce your index fingertips across the line!");
+    setStatus("GO! Palm up, bounce your hands up and down!");
     timerInterval = setInterval(() => {
       updateTimer(timeLeft - 1);
       if (timeLeft <= 0) endGame();

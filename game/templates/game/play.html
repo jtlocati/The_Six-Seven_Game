@@ -1,0 +1,54 @@
+{% extends "game/base.html" %}
+{% load static %}
+{% block title %}Play · 67 Game{% endblock %}
+{% block content %}
+<section class="card play-card">
+  <div class="hud">
+    <div class="hud-item"><span class="label">Player</span><span class="value">{{ name }}</span></div>
+    <div class="hud-item"><span class="label">Time</span><span id="timer" class="value">{{ duration }}</span></div>
+    <div class="hud-item big"><span class="label">67s</span><span id="count" class="value">0</span></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="status" class="status">Loading hand tracking…</div>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn" class="primary" disabled>Start</button>
+    <button id="resetBtn">Reset</button>
+    <a href="{% url 'home' %}" class="ghost">Back</a>
+  </div>
+
+  <p class="hint">
+    Tip: palm toward the camera, full hand in frame, good lighting. Each full up-and-down bounce of a hand = 1 count.
+  </p>
+</section>
+
+<div id="resultModal" class="modal hidden">
+  <div class="modal-content">
+    <h2>Time's up!</h2>
+    <p>You did <strong id="finalCount">0</strong> 67s in {{ duration }} seconds.</p>
+    <p id="rankLine" class="rank"></p>
+    <div class="modal-actions">
+      <a href="{% url 'play' %}?duration={{ duration }}" class="primary">Play Again</a>
+      <a href="{% url 'leaderboard' %}?duration={{ duration }}">Leaderboard</a>
+      <a href="{% url 'home' %}" class="ghost">Home</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.GAME_CONFIG = {
+    duration: {{ duration }},
+    submitUrl: "{% url 'submit_score' %}",
+    csrfToken: "{{ csrf_token }}",
+    playerName: "{{ name|escapejs }}"
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="{% static 'game/game.js' %}"></script>
+{% endblock %}

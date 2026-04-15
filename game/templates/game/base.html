@@ -1,0 +1,26 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{% block title %}67 Game{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="{% static 'game/style.css' %}" />
+</head>
+<body>
+  <header class="topbar">
+    <a href="{% url 'home' %}" class="brand">6️⃣7️⃣ Game</a>
+    <nav>
+      <a href="{% url 'home' %}">Home</a>
+      <a href="{% url 'leaderboard' %}">Leaderboard</a>
+      {% if name %}
+        <span class="who">Hi, {{ name }}</span>
+        <a href="{% url 'clear_name' %}" class="small">(change)</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
