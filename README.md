@@ -1,8 +1,6 @@
 # 67 Game 🎯
 
-A Django site that uses your webcam and MediaPipe Hands to count how many
-"67s" you can rip off in a set amount of time. Each full up-and-down bounce
-of a palm-up hand counts as a tick. Scores are saved to a leaderboard.
+This super innovative projects will improve humanity.
 
 ## Features
 - Webcam hand tracking with **MediaPipe Hands** (loaded from CDN — no Python ML deps)
@@ -26,15 +24,6 @@ python manage.py runserver
 
 Then open **http://127.0.0.1:8000/**
 
-> Browsers only allow webcam access on `localhost` or `https`. `127.0.0.1`
-> and `localhost` are both fine for dev. If you host this somewhere, you'll
-> need HTTPS or the camera API won't work.
-
-### Optional — admin
-```bash
-python manage.py createsuperuser
-```
-Then visit `/admin/` to browse/edit scores.
 
 ## How the counter works
 MediaPipe tracks up to two hands per frame. For each hand the script computes
@@ -59,24 +48,4 @@ Tunable knobs at the top of `game/static/game/game.js`:
 | `MIN_AMPLITUDE` | Minimum bounce size (fraction of frame height) to count. |
 | `MIN_INTERVAL_MS` | Debounce window between counted extrema. |
 
-## Project layout
-```
-The_Six-Seven_Game/
-├── manage.py
-├── requirements.txt
-├── sixseven/          # Django project (settings, urls, wsgi)
-└── game/              # the app
-    ├── models.py      # Score model
-    ├── views.py       # home / play / leaderboard / submit_score / set_name
-    ├── urls.py
-    ├── admin.py
-    ├── migrations/
-    ├── templates/game/
-    │   ├── base.html
-    │   ├── home.html
-    │   ├── play.html
-    │   └── leaderboard.html
-    └── static/game/
-        ├── style.css
-        └── game.js    # MediaPipe Hands + counter logic
 ```
