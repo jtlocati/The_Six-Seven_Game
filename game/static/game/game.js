@@ -2,23 +2,6 @@
  *
  * Chosen for the use case: a palm-up hand facing the camera, moving FAST up
  * and down.
- *
- * Why this tracking approach:
- *   - Fingertips (esp. landmark 8) are unstable under motion blur and when
- *     fingers curl, so counting fingertip line-crossings flickers at high
- *     speed. We instead use the PALM CENTER, computed as the mean of the
- *     wrist (0) plus the four finger-MCP knuckles (5, 9, 13, 17). With a
- *     palm-up / front-facing pose these five points are always visible and
- *     form a stable anchor that barely moves when the fingers flex.
- *   - A fixed "line crossing" counter misbehaves when the user's motion
- *     amplitude drifts off-center (e.g. they start bouncing mostly above the
- *     line). We instead do PEAK/TROUGH DETECTION on the smoothed palm Y:
- *     every time vertical direction reverses with enough amplitude, that's
- *     one extremum; a full up-down cycle = one "67".
- *   - Each hand is tracked independently (keyed by which half of the frame
- *     its palm is in), so the counter doesn't cut out when one hand briefly
- *     leaves the frame, and fast alternating "Left up / Right up" bouncing
- *     counts on both hands.
  */
 (() => {
   const cfg = window.GAME_CONFIG;
@@ -49,13 +32,6 @@
   const MIN_INTERVAL_MS = 80; // min time between counted peaks/troughs (debounce)
 
   // Per-hand state. Keyed by "L" or "R" based on which half of the frame the
-  // palm center is in this frame.
-  //   smoothY:       low-pass filtered palm Y in [0..1]
-  //   candidateY:    running extreme Y since last confirmed extremum
-  //                  (tracks the farthest the palm has moved in the current
-  //                   direction — this is the "candidate peak/trough")
-  //   lastExtType:   "peak" (high point, small y) | "trough" (low point, big y) | null
-  //   lastExtAt:     timestamp of last counted extremum (ms) for debounce
   const handState = new Map();
 
   function getHandState(label) {
@@ -154,24 +130,15 @@
           continue;
         }
 
-        // `nextExpected` is the kind of extremum we're currently hunting for.
-        //   - If the last confirmed extremum was a trough (or we haven't
-        //     confirmed one yet), we're looking for a peak (small Y).
-        //   - If the last confirmed extremum was a peak, we're looking for
-        //     a trough (big Y).
         const huntingPeak = s.lastExtType !== "peak"; // default: hunt peak first
 
         if (huntingPeak) {
           // Track the smallest (highest) Y we've seen since last confirmation
           if (s.smoothY < s.candidateY) s.candidateY = s.smoothY;
-          // Confirm the peak once the palm has moved back DOWN from the
           // candidate by at least MIN_AMPLITUDE
           if (s.smoothY - s.candidateY >= MIN_AMPLITUDE &&
               (now - s.lastExtAt) >= MIN_INTERVAL_MS) {
             if (s.lastExtType !== null) {
-              // peak after a previous extremum => completed half a cycle;
-              // count every extremum after the first so both up-bounces
-              // and down-bounces register => rewards speed.
               updateCount(count + 1);
             }
             s.lastExtType = "peak";
@@ -179,7 +146,7 @@
             s.lastExtAt = now;
           }
         } else {
-          // Hunting a trough — track the largest (lowest) Y
+
           if (s.smoothY > s.candidateY) s.candidateY = s.smoothY;
           if (s.candidateY - s.smoothY >= MIN_AMPLITUDE &&
               (now - s.lastExtAt) >= MIN_INTERVAL_MS) {

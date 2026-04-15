@@ -9,13 +9,13 @@
 </head>
 <body>
   <header class="topbar">
-    <a href="{% url 'home' %}" class="brand">6️⃣7️⃣ Game</a>
+    <a href="{% url 'home' %}" class="brand">67 Game</a>
     <nav>
       <a href="{% url 'home' %}">Home</a>
       <a href="{% url 'leaderboard' %}">Leaderboard</a>
       {% if name %}
-        <span class="who">Hi, {{ name }}</span>
-        <a href="{% url 'clear_name' %}" class="small">(change)</a>
+        <span class="who">WAZZUP {{ name }}</span>
+        <a href="{% url 'clear_name' %}" class="small">Change name</a>
       {% endif %}
     </nav>
   </header>

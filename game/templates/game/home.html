@@ -4,8 +4,8 @@
 <section class="card">
   <h1>How many 67's can you do?</h1>
   <p class="lede">
-    Cross your hands back and forth over the center line — each full crossover counts as one "67".
-    Pick a duration, get hyped, and blast the leaderboard.
+    Do the 67 meme. I swear that its still super relevant in the big 26.
+    Are you going to mog the compitiion? or are you going to be a larper?
   </p>
 
   {% if name %}
@@ -21,7 +21,7 @@
       </label>
       <button type="submit" class="primary">Start Run</button>
     </form>
-    <p><a href="{% url 'clear_name' %}">Not you? Change name.</a></p>
+    <p><a href="{% url 'clear_name' %}">Change name.</a></p>
   {% else %}
     <form action="{% url 'set_name' %}" method="post" class="name-form">
       {% csrf_token %}
@@ -33,7 +33,7 @@
   {% endif %}
 
   <p class="links">
-    <a href="{% url 'leaderboard' %}">🏆 View Leaderboard</a>
+    <a href="{% url 'leaderboard' %}">Leaderboard</a>
   </p>
 </section>
 {% endblock %}
