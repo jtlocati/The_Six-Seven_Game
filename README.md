@@ -1,6 +1,6 @@
 # 67 Game
 
-This super innovative projects will improve humanity.
+This super innovative project will improve humanity.
 
 ## Features
 - Webcam hand tracking with MediaPipe Hands (loaded from CDN)
@@ -10,7 +10,7 @@ This super innovative projects will improve humanity.
 - Django admin for managing scores
 
 ## Link
-Link **(https://the-six-seven-game.onrender.com)**
+Link **(https://the-six-seven-game.onrender.com)** (May take a second to load/initalize hosting services)
 
 
 ## How the counter works
