@@ -3,32 +3,20 @@
 This super innovative projects will improve humanity.
 
 ## Features
-- Webcam hand tracking with **MediaPipe Hands** (loaded from CDN — no Python ML deps)
-- Choose a 10 / 15 / 30 / 60 second run
-- Enters your name once, kept in a cookie for next time
+- Webcam hand tracking with MediaPipe Hands (loaded from CDN)
+- Player can choose a 10 / 15 / 30 / 60 second run
+- Player may enter their name to keep track of their progress on the leaderboard, the names is then stored within the sites cookies
 - Leaderboard filterable by duration
-- Django admin for managing scores (create a superuser if you want to use it)
+- Django admin for managing scores
 
-## Setup
-
-```bash
-# from this folder (The_Six-Seven_Game/)
-python -m venv .venv
-.venv\Scripts\activate            # Windows
-# source .venv/bin/activate       # macOS / Linux
-
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
-```
-
-Then open **http://127.0.0.1:8000/**
+## Link
+Link **TBA**
 
 
 ## How the counter works
-MediaPipe tracks up to two hands per frame. For each hand the script computes
-a stable "palm center" (average of the wrist and the four finger-MCP knuckles
-— landmarks 0, 5, 9, 13, 17) and low-pass filters its Y position.
+MediaPipe tracks two hands per frame. For each hand the script computes
+a stable palm center witch is the average of the wrist and the four finger-MCP knuckles
+landmarks 0, 5, 9, 13, 17 and low-pass filters its Y position.
 
 Counting uses peak/trough detection: the script tracks the farthest-traveled
 palm position in the current direction, then confirms that position as a
