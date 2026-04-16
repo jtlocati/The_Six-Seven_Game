@@ -10,7 +10,7 @@ This super innovative projects will improve humanity.
 - Django admin for managing scores
 
 ## Link
-Link **TBA**
+Link **(https://the-six-seven-game.onrender.com)**
 
 
 ## How the counter works
