@@ -2,9 +2,10 @@
 Django settings for sixseven project.
 """
 from pathlib import Path
-from os import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+STATIC_ROOT = BASE_DIR / "static"
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = "django-insecure-change-me-in-production-sixseven-game-secret-key"
