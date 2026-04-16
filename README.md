@@ -1,4 +1,4 @@
-# 67 Game 🎯
+# 67 Game
 
 This super innovative projects will improve humanity.
 
