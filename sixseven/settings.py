@@ -2,6 +2,7 @@
 Django settings for sixseven project.
 """
 from pathlib import Path
+from os import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
